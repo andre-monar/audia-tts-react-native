@@ -4,7 +4,7 @@ import { breakNextLine } from '../utils/lineBreaker';
 import { mockMarkdown } from '../utils/mockText';
 import { COLORS } from '../theme/colors';
 import { FONT_SIZES } from '../theme/fontSizes';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute } from '@react-navigation/native';
 
 const EMPTY_LINE = { words: [], fontSize: FONT_SIZES.paragraph, lineType: 'empty' };
 const BUFFER_EMPTY = { words: [], fontSize: FONT_SIZES.paragraph, lineType: 'buffer' };
@@ -16,6 +16,8 @@ const RESET_INTERVAL = 2000; // ms antes de reiniciar após terminar
 export default function TTSScreen() {
 
   const navigation = useNavigation();
+  const route = useRoute();
+  const initialMarkdown = route.params?.markdownText || mockMarkdown;
 
   // ── ESTADO ──────────────────────────────────────────────────────────────
   const [lines, setLines] = useState(Array(TOTAL_LINES).fill(BUFFER_EMPTY));
@@ -24,7 +26,8 @@ export default function TTSScreen() {
   // ── REFS (não causam re-render, usadas dentro de timers e callbacks) ────
   const linesRef = useRef(Array(TOTAL_LINES).fill(BUFFER_EMPTY)); // espelho de lines
   const activeWordRef = useRef(0);          // espelho de activeWord
-  const remainingMarkdown = useRef(mockMarkdown); // markdown ainda não processado
+  const initialMarkdownRef = useRef(initialMarkdown);
+  const remainingMarkdown = useRef(initialMarkdownRef.current); // markdown ainda não processado
   const isPaused = useRef(false);           // controle de pausa
   const wordTimer = useRef(null);           // referência do setInterval
   const lineHistory = useRef([]); // pilha de linhas já lidas
@@ -170,7 +173,7 @@ export default function TTSScreen() {
 
   // ── RESTART ──────────────────────────────────────────────────────────────
   async function restart() {
-    remainingMarkdown.current = mockMarkdown;
+    remainingMarkdown.current = initialMarkdownRef.current;
     updateActiveWord(0);
 
     const l3 = await loadNextLine();
