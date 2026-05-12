@@ -1,44 +1,66 @@
 import { Dimensions } from 'react-native';
-import TextSize from 'react-native-text-size';
-
+import { FONT_SIZES } from '../theme/fontSizes'
+// é assim q funciona: 
 // pega largura da tela, que pode modificar o número de palavras por linha
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const PADDING = 32; // padding horizontal
 const AVAILABLE_WIDTH = SCREEN_WIDTH - PADDING;
+const CHAR_WIDTH_RATIO = 0.55;
 
 // in: string markdown
-// out: array de linhas
-// cada linha: {words: [{ text, bold, italic, underline}], fontSize}
-export async function breakLinesFromFirstParagraph(markdown) {
-    // vamos esvaziar o markdown parágrafo por parágrafo. a ideia é já enviar pro front o parágrafo processado,
-    // assim o usuário não precisa esperar processar todo o texto para acessar o conteúdo.
-    // esse processamento podia ser feito no aiScraping também, mas por ora vamos deixar só por aqui.
-    const { paragraph, remainingMarkdown } = selectFirstParagraph(markdown);
+// out: { line: { words, fontSize, lineType } | null, remainingMarkdown: string }
+export async function breakNextLine(markdown) {
+  if (!markdown || markdown.trim().length === 0) {
+    return { line: null, remainingMarkdown: '' };
+  }
 
-    // para o paragrafo, chamar WrapWords
-    const { lineType, fontSize, rawText } = parseParagraphType(paragraph);
-    const words = parseWords(rawText);
-    const wrappedLines = await wrapWords(words, fontSize);
+  const { paragraph, remainingMarkdown: afterParagraph, emptyLineAfter } = selectFirstParagraph(markdown);
 
-    const lines = wrappedLines.map(line => ({ words: line, fontSize, lineType }));
+  if (paragraph === '') {
+    return { line: { words: [], fontSize: FONT_SIZES.paragraph, lineType: 'empty' }, remainingMarkdown: afterParagraph };
+  }
 
-    return { lines, remainingMarkdown };
+  const { lineType, fontSize, rawText } = parseParagraphType(paragraph);
+  const words = parseWords(rawText);
+  const wrappedLines = await wrapWords(words, fontSize);
+
+  const firstLine = wrappedLines[0];
+
+  // reconstrói remainingMarkdown com sobras do parágrafo
+  const leftoverLines = wrappedLines.slice(1);
+  let newRemaining = '';
+
+  if (leftoverLines.length > 0) {
+    const prefix = lineType === 'h1' ? '# ' : lineType === 'h2' ? '## ' : lineType === 'h3' ? '### ' : '';
+    const leftoverText = prefix + leftoverLines.map(l => l.map(w => w.text).join(' ')).join('\n');
+    newRemaining = leftoverText + (afterParagraph ? '\n' + (emptyLineAfter ? '\n' : '') + afterParagraph : '');
+  } else {
+    // se tinha \n\n, injeta linha vazia no início do remaining
+    newRemaining = emptyLineAfter ? '\n' + afterParagraph : afterParagraph;
+  }
+
+  return {
+    line: { words: firstLine, fontSize, lineType },
+    remainingMarkdown: newRemaining,
+  };
 }
 
 // in: string markdown
-// out: { paragraph: string, remainingMarkdown: string }
+// out: { paragraph, remainingMarkdown, emptyLineAfter }
 function selectFirstParagraph(markdown) {
-    const index = markdown.indexOf('\n\n');
+  const index = markdown.indexOf('\n');
 
-    if (index === -1) {
-    // só tem um parágrafo, markdown acaba aqui
-    return { paragraph: markdown.trim(), remainingMarkdown: '' };
-    }
+  if (index === -1) {
+    return { paragraph: markdown.trim(), remainingMarkdown: '', emptyLineAfter: false };
+  }
 
-    return {
+  const isDoubleBreak = markdown[index + 1] === '\n';
+
+  return {
     paragraph: markdown.slice(0, index).trim(),
-    remainingMarkdown: markdown.slice(index + 2).trim(),
-    };
+    remainingMarkdown: markdown.slice(isDoubleBreak ? index + 2 : index + 1).trim(),
+    emptyLineAfter: isDoubleBreak,
+  };
 }
 
 // determinar tipo de parágrafo: título, subtítulo, texto, etc
@@ -55,54 +77,27 @@ function parseParagraphType(paragraph) {
     return { lineType: 'paragraph', fontSize: FONT_SIZES.paragraph, rawText: paragraph };
 }
 
-// determinar tipos de palavras: negritadas, sublinhadas, etc.
+// limpar marcadores
 function parseWords(text) {
-    const words = [];
-    // divide o texto preservando os marcadores de formatação como tokens separados
-    const tokens = text.split(/(\*\*[^*]+\*\*|__[^_]+__|_[^_]+_)/g).filter(t => t.trim());
+  // remove marcadores markdown e retorna array de { text }
+  const clean = text
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/__([^_]+)__/g, '$1')
+    .replace(/_([^_]+)_/g, '$1');
 
-    for (const token of tokens) {
-        let bold = false, italic = false, underline = false;
-        let inner = token;
-
-        if (token.startsWith('**') && token.endsWith('**')) {
-        bold = true;
-        inner = token.slice(2, -2);
-        } else if (token.startsWith('__') && token.endsWith('__')) {
-        underline = true;
-        inner = token.slice(2, -2);
-        } else if (token.startsWith('_') && token.endsWith('_')) {
-        italic = true;
-        inner = token.slice(1, -1);
-        }
-
-        inner.split(' ').filter(Boolean).forEach(w =>
-        words.push({ text: w, bold, italic, underline })
-        );
-    }
-
-    return words;
+  return clean.split(' ').filter(Boolean).map(w => ({ text: w }));
 }
 // agrupar palavras por linha
 async function wrapWords(words, fontSize) {
     const lines = []; // array de linhas, cada linha é um array de palavras
     let currentLine = []; // linha atual
     let currentWidth = 0; // largura da linha atual (ele mede palavra a palavra para lidar com fontes proporcionais)
-
+    const charWidth = fontSize * CHAR_WIDTH_RATIO;
     // palavra a palavra:
     for (const word of words) {     
         // array de linhas, cada linha é um array de palavras
-        const [{ width: wordWidth }] = await TextSize.measure({
-        text: word.text,
-        fontSize,
-        fontFamily: 'System',
-        });
-
-        // largura da linha atual
-        const spaceWidth = currentLine.length > 0
-        ? (await TextSize.measure({ text: ' ', fontSize, fontFamily: 'System' }))[0].width
-        : 0;
-
+        const wordWidth = word.text.length * charWidth;
+        const spaceWidth = currentLine.length > 0 ? charWidth : 0;
 
         // se a largura da linha atual + espaço + largura da palavra for menor que a largura disponível, adiciona a palavra à linha
         if (currentWidth + spaceWidth + wordWidth <= AVAILABLE_WIDTH) {
