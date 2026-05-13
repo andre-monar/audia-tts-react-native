@@ -1,16 +1,16 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { View, Text, StyleSheet, TouchableWithoutFeedback, Animated } from 'react-native';
 import { breakNextLine } from '../utils/lineBreaker';
 import { mockMarkdown } from '../utils/mockText';
 import { COLORS } from '../theme/colors';
 import { FONT_SIZES } from '../theme/fontSizes';
 import { useNavigation, useRoute } from '@react-navigation/native';
+import { useSpeechManager } from '../hooks/useSpeechManager';
 
 const EMPTY_LINE = { words: [], fontSize: FONT_SIZES.paragraph, lineType: 'empty' };
 const BUFFER_EMPTY = { words: [], fontSize: FONT_SIZES.paragraph, lineType: 'buffer' };
-const TOTAL_LINES = 7;    // total de linhas no buffer (inclui 2 ocultas)
-const ACTIVE_IDX = 3;     // índice da linha ativa (sempre centro)
-const WORD_INTERVAL = 500;  // ms por palavra
+const TOTAL_LINES = 7; // total de linhas no buffer (inclui 2 ocultas)
+const ACTIVE_IDX = 3; // índice da linha ativa (sempre centro)
 const RESET_INTERVAL = 2000; // ms antes de reiniciar após terminar
 
 export default function TTSScreen() {
@@ -28,11 +28,13 @@ export default function TTSScreen() {
   const activeWordRef = useRef(0);          // espelho de activeWord
   const initialMarkdownRef = useRef(initialMarkdown);
   const remainingMarkdown = useRef(initialMarkdownRef.current); // markdown ainda não processado
-  const isPaused = useRef(false);           // controle de pausa
   const wordTimer = useRef(null);           // referência do setInterval
   const lineHistory = useRef([]); // pilha de linhas já lidas
   const lineQueue = useRef([]);    // fila de linhas futuras descartadas no goBackLine
+  const restartTimeoutRef = useRef(null); // timeout para reiniciar após terminar
 
+  // hook de fala, encapsula e manda para useSpeechManager 
+  const { isPaused, togglePause, speakLine, stopSpeaking } = useSpeechManager();
   // ── ANIMAÇÕES ────────────────────────────────────────────────────────────
   // opacidades individuais de cada linha (índices 0 e 6 sempre 0)
   const opacities = useRef(
@@ -92,19 +94,15 @@ export default function TTSScreen() {
         l6 || BUFFER_EMPTY,     // 6 — oculta (abaixo)
       ]);
       updateActiveWord(0);
-      startWordTimer();
+      speakCurrentLine();
     }
 
     init();
-    return () => clearInterval(wordTimer.current);
+    return () => {
+      Speech.stop(); // para qualquer fala em andamento
+      clearInterval(wordTimer.current);
+    };
   }, []);
-
-  // ── TIMER DE PALAVRAS ────────────────────────────────────────────────────
-  function startWordTimer() {
-    wordTimer.current = setInterval(() => {
-      if (!isPaused.current) advanceWord();
-    }, WORD_INTERVAL);
-  }
 
   // ── AVANÇAR PALAVRA ──────────────────────────────────────────────────────
   function advanceWord() {
@@ -163,7 +161,7 @@ export default function TTSScreen() {
       const shifted = [...linesRef.current.slice(1), newLine || BUFFER_EMPTY];
       updateLines(shifted);
       updateActiveWord(0);
-
+      speakCurrentLine();
       // reseta opacidades para estado padrão
       opacities.forEach((anim, i) => {
         anim.setValue(i === 0 || i === TOTAL_LINES - 1 ? 0 : 1);
@@ -173,6 +171,7 @@ export default function TTSScreen() {
 
   // ── RESTART ──────────────────────────────────────────────────────────────
   async function restart() {
+    stopSpeaking();
     remainingMarkdown.current = initialMarkdownRef.current;
     updateActiveWord(0);
 
@@ -196,22 +195,19 @@ export default function TTSScreen() {
       anim.setValue(i === 0 || i === TOTAL_LINES - 1 ? 0 : 1);
     });
 
-    startWordTimer();
-  }
-
-  // ── PAUSE / RESUME ───────────────────────────────────────────────────────
-  function togglePause() {
-    isPaused.current = !isPaused.current;
+    speakCurrentLine();
   }
 
   // ── IR PARA HOME ───────────────────────────────────────────────────────
   function goHome() {
+    stopSpeaking(); // interrompe fala atual
     clearInterval(wordTimer.current); // para o timer antes de sair
     navigation.navigate('Home');
   }
 
   // ── IR PARA LINHA ANTERIOR ─────────────────────────────────────────────
   function goBackLine() {
+    stopSpeaking(); // interrompe fala atual
     console.log('antes:', linesRef.current.map(l => l.words.map(w => w.text).join(' ')));
     console.log('queue antes:', lineQueue.current.map(l => l.words.map(w => w.text).join(' ')));
     if (lineHistory.current.length === 0) {
@@ -249,6 +245,28 @@ export default function TTSScreen() {
     console.log('depois:', reversed.map(l => l.words.map(w => w.text).join(' ')));
     console.log('queue depois:', lineQueue.current.map(l => l.words.map(w => w.text).join(' ')));
   }
+
+  // ── SPEECH ─────────────────────────────────────────────
+    const speakCurrentLine = useCallback(() => {
+    const line = linesRef.current[ACTIVE_IDX];
+
+    if (!line || line.words.length === 0) {
+      const allEmpty = linesRef.current.every(l => l.words.length === 0);
+      if (allEmpty && !remainingMarkdown.current) {
+        clearTimeout(restartTimeoutRef.current);
+        restartTimeoutRef.current = setTimeout(restart, RESET_INTERVAL);
+      } else {
+        advanceLine();
+      }
+      return;
+    }
+
+    // Dispara a fala passando os callbacks necessários
+    speakLine(line, {
+      onWordChange: (idx) => updateActiveWord(idx),
+      onLineEnd: () => advanceLine(),
+    });
+  }, [speakLine]);
 
   // ── RENDER ───────────────────────────────────────────────────────────────
   return (
