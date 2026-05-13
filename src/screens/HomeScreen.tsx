@@ -4,22 +4,19 @@ import { useNavigation } from '@react-navigation/native';
 import type { NavigationProp } from '@react-navigation/native';
 import * as DocumentPicker from 'expo-document-picker';
 import type { DocumentPickerAsset } from 'expo-document-picker';
-import { processTextWithAI } from '../services/aiScraping';
+import { useProcessTextWithAI } from '../services/aiScraping';
 import type { RootStackParamList } from '../navigation/AppNavigator';
 
 type ProcessError = Error & {
   kind?: 'network' | 'service';
 };
 
-const processPdfWithAI = processTextWithAI as unknown as (
-  pdfFile: DocumentPickerAsset
-) => Promise<unknown>;
-
 export default function HomeScreen() {
   const navigation = useNavigation<NavigationProp<RootStackParamList, 'Home'>>();
   const [selectedFile, setSelectedFile] = useState<DocumentPickerAsset | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const isProcessingRef = useRef(false);
+  const { processFile, webViewElement } = useProcessTextWithAI();
 
   async function handlePickPdf() {
     if (isLoading || isProcessingRef.current) {
@@ -36,7 +33,7 @@ export default function HomeScreen() {
       });
 
       if (result.canceled) {
-        Alert.alert('Selecao cancelada', 'Nenhum arquivo foi selecionado.');
+        Alert.alert('Seleção cancelada', 'Nenhum arquivo foi selecionado.');
         return;
       }
 
@@ -44,7 +41,7 @@ export default function HomeScreen() {
 
       if (!file || !isPdfFile(file)) {
         setSelectedFile(null);
-        Alert.alert('Arquivo invalido', 'Selecione um arquivo PDF.');
+        Alert.alert('Arquivo inválido', 'Selecione um arquivo PDF.');
         return;
       }
 
@@ -52,10 +49,10 @@ export default function HomeScreen() {
       setIsLoading(true);
       await waitForLoadingFrame();
 
-      let processedMarkdown: unknown = '';
+      let processedMarkdown = '';
 
       try {
-        processedMarkdown = await processPdfWithAI(file);
+        processedMarkdown = await processFile(file);
       } catch (serviceError) {
         throw createProcessError(isNetworkError(serviceError) ? 'network' : 'service');
       }
@@ -64,8 +61,8 @@ export default function HomeScreen() {
 
       if (!markdownText) {
         Alert.alert(
-          'Texto nao encontrado',
-          'Nao foi possivel extrair texto deste PDF. Tente outro arquivo.'
+          'Texto não encontrado',
+          'Não foi possível extrair texto deste PDF. Tente outro arquivo.'
         );
         return;
       }
@@ -82,27 +79,27 @@ export default function HomeScreen() {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>TTS</Text>
+      <Text style={styles.title}>Audia TTS</Text>
 
-      <View style={styles.buttonContainer}>
-        <TouchableOpacity
-          style={[styles.button, isLoading && styles.buttonDisabled]}
-          onPress={handlePickPdf}
-          activeOpacity={0.8}
-          disabled={isLoading}
-          accessibilityLabel={
-            selectedFile ? `Arquivo selecionado: ${selectedFile.name}` : 'Carregar arquivo'
-          }
-        >
-          <Text style={styles.buttonText}>Carregar arquivo</Text>
-        </TouchableOpacity>
-      </View>
+      <TouchableOpacity
+        style={[styles.button, isLoading && styles.buttonDisabled]}
+        onPress={handlePickPdf}
+        activeOpacity={0.8}
+        disabled={isLoading}
+        accessibilityLabel={
+          selectedFile ? `Arquivo selecionado: ${selectedFile.name}` : 'Carregar arquivo'
+        }
+      >
+        <Text style={styles.buttonText}>Carregar arquivo</Text>
+      </TouchableOpacity>
 
       {isLoading && (
         <View style={styles.loadingOverlay} pointerEvents="auto">
-          <ActivityIndicator size="large" color="#E5E5E5" />
+          <ActivityIndicator size="large" color="#FFFFFF" />
         </View>
       )}
+
+      {webViewElement}
     </View>
   );
 }
@@ -113,11 +110,7 @@ function waitForLoadingFrame() {
   });
 }
 
-function normalizeMarkdownText(markdown: unknown) {
-  if (typeof markdown !== 'string') {
-    return '';
-  }
-
+function normalizeMarkdownText(markdown: string) {
   return markdown.trim();
 }
 
@@ -131,12 +124,12 @@ function showProcessingError(error: unknown) {
   const kind = (error as ProcessError)?.kind;
 
   if (kind === 'network' || isNetworkError(error)) {
-    Alert.alert('Falha de rede', 'Verifique sua conexao e tente novamente.');
+    Alert.alert('Falha de rede', 'Verifique sua conexão e tente novamente.');
     return;
   }
 
   if (kind === 'service') {
-    Alert.alert('Erro no processamento', 'Nao foi possivel processar este PDF agora.');
+    Alert.alert('Erro no processamento', 'Não foi possível processar este PDF agora.');
     return;
   }
 
@@ -173,43 +166,31 @@ function isPdfFile(file: DocumentPickerAsset) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: '#1A1A1A',
   },
   title: {
-    position: 'absolute',
-    top: '28%',
-    left: 0,
-    right: 0,
-    color: '#CCCCCC',
-    fontSize: 48,
-    fontWeight: '600',
-    textAlign: 'center',
-  },
-  buttonContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    width: '100%',
+    fontSize: 24,
+    color: '#FFF',
+    marginBottom: 20,
   },
   button: {
-    backgroundColor: '#E5E5E5',
+    padding: 12,
+    backgroundColor: '#007AFF',
     borderRadius: 8,
-    paddingVertical: 14,
-    paddingHorizontal: 28,
   },
   buttonDisabled: {
     opacity: 0.55,
   },
   buttonText: {
-    color: '#1A1A1A',
-    fontSize: 16,
-    fontWeight: '600',
+    color: '#FFF',
+    fontSize: 18,
   },
   loadingOverlay: {
     ...StyleSheet.absoluteFillObject,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: 'rgba(26, 26, 26, 0.35)',
+    backgroundColor: 'rgba(26, 26, 26, 0.6)',
   },
 });
