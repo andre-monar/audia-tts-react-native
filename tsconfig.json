@@ -6,5 +6,5 @@
   "include": [
     "**/*.ts",
     "**/*.tsx"
-  ]
+, "src/screens/HomeScreen.js"  ]
 }

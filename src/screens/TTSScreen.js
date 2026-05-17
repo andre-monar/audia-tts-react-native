@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { View, Text, StyleSheet, TouchableWithoutFeedback, Animated } from 'react-native';
 import { breakNextLine } from '../utils/lineBreaker';
-import { mockMarkdown } from '../utils/mockText';
 import { COLORS } from '../theme/colors';
 import { FONT_SIZES } from '../theme/fontSizes';
 import { useNavigation, useRoute } from '@react-navigation/native';

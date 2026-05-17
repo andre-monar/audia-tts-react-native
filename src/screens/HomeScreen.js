@@ -1,19 +1,12 @@
 import { useRef, useState } from 'react';
 import { ActivityIndicator, Alert, View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
-import type { NavigationProp } from '@react-navigation/native';
 import * as DocumentPicker from 'expo-document-picker';
-import type { DocumentPickerAsset } from 'expo-document-picker';
-import { useProcessTextWithAI } from '../services/aiScraping';
-import type { RootStackParamList } from '../navigation/AppNavigator';
-
-type ProcessError = Error & {
-  kind?: 'network' | 'service';
-};
+import { useProcessTextWithAI } from '../services/pdfScraping';
 
 export default function HomeScreen() {
-  const navigation = useNavigation<NavigationProp<RootStackParamList, 'Home'>>();
-  const [selectedFile, setSelectedFile] = useState<DocumentPickerAsset | null>(null);
+  const navigation = useNavigation();
+  const [selectedFile, setSelectedFile] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const isProcessingRef = useRef(false);
   const { processFile, webViewElement } = useProcessTextWithAI();
@@ -105,23 +98,23 @@ export default function HomeScreen() {
 }
 
 function waitForLoadingFrame() {
-  return new Promise<void>((resolve) => {
+  return new Promise((resolve) => {
     requestAnimationFrame(() => resolve());
   });
 }
 
-function normalizeMarkdownText(markdown: string) {
+function normalizeMarkdownText(markdown) {
   return markdown.trim();
 }
 
-function createProcessError(kind: ProcessError['kind']) {
+function createProcessError(kind) {
   const error = new Error(kind);
-  (error as ProcessError).kind = kind;
+  error.kind = kind;
   return error;
 }
 
-function showProcessingError(error: unknown) {
-  const kind = (error as ProcessError)?.kind;
+function showProcessingError(error) {
+  const kind = error?.kind;
 
   if (kind === 'network' || isNetworkError(error)) {
     Alert.alert('Falha de rede', 'Verifique sua conexão e tente novamente.');
@@ -136,7 +129,7 @@ function showProcessingError(error: unknown) {
   Alert.alert('Erro inesperado', 'Algo deu errado. Tente novamente.');
 }
 
-function isNetworkError(error: unknown) {
+function isNetworkError(error) {
   const message = getErrorMessage(error).toLowerCase();
 
   return (
@@ -148,7 +141,7 @@ function isNetworkError(error: unknown) {
   );
 }
 
-function getErrorMessage(error: unknown) {
+function getErrorMessage(error) {
   if (error instanceof Error) {
     return error.message;
   }
@@ -156,7 +149,7 @@ function getErrorMessage(error: unknown) {
   return String(error);
 }
 
-function isPdfFile(file: DocumentPickerAsset) {
+function isPdfFile(file) {
   const fileName = file.name.toLowerCase();
   const mimeType = file.mimeType?.toLowerCase();
 
